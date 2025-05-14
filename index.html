@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>横スクロールアクションゲーム</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #5c94fc; /* マリオっぽい空の色 */
+            font-family: 'Press Start 2P', cursive;
+            overflow: hidden; /* スクロールバーを隠す */
+        }
+        #gameContainer {
+            border: 3px solid #000;
+            position: relative;
+            overflow: hidden;
+            background-color: #78abff;
+            width: 800px;
+            height: 400px;
+            max-width: 95vw;
+            max-height: 80vh;
+            aspect-ratio: 2 / 1;
+        }
+        canvas {
+            display: block;
+            background-color: transparent;
+            width: 100%;
+            height: 100%;
+        }
+        #controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+        button {
+            font-family: 'Press Start 2P', cursive;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #ff4136;
+            color: white;
+            border: 2px solid #000;
+            border-radius: 8px;
+            box-shadow: 0 4px #999;
+            transition: all 0.1s ease;
+        }
+        button:active {
+            box-shadow: 0 2px #666;
+            transform: translateY(2px);
+        }
+        #score {
+            font-size: 24px;
+            color: #fff;
+            text-shadow: 2px 2px #000;
+            margin-bottom: 10px;
+        }
+        .message-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.75);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 100;
+            display: none;
+            border: 3px solid #fff;
+        }
+    </style>
+</head>
+<body>
+    <div id="score">スコア: 0</div>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="messageBox" class="message-box">
+            <p id="messageText"></p>
+            <button id="restartButton">リスタート</button>
+        </div>
+    </div>
+    <div id="controls">
+        <button id="jumpButton">ジャンプ</button>
+        <p style="color:white; margin-top: 10px;">操作: ← → キーで移動, ↑ または スペースキーでジャンプ</p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameContainer = document.getElementById('gameContainer');
+        const scoreDisplay = document.getElementById('score');
+        const messageBox = document.getElementById('messageBox');
+        const messageText = document.getElementById('messageText');
+        const restartButton = document.getElementById('restartButton');
+        const jumpButton = document.getElementById('jumpButton');
+
+        let player;
+        let obstacles = [];
+        let groundY;
+        let score = 0;
+        let obstacleSpawnTimer = 0;
+        const obstacleSpawnIntervalBase = 180; // 障害物出現間隔の基本値
+        let obstacleSpawnInterval = obstacleSpawnIntervalBase;
+        let gameOver = false;
+        let gameWon = false; // ゲームクリアフラグ
+        let gameStarted = false;
+
+        // --- ゲーム設定定数 ---
+        const PLAYER_MOVE_SPEED = 4;
+        const JUMP_FORCE = 12; // ジャンプ力を 15 から 12 に変更
+        const GRAVITY = 0.45;
+        const GOAL_X_POSITION = 10000; // ゴールのX座標 (ワールド座標) -> 100m地点
+        // --------------------
+
+        // プレイヤーのプロパティ
+        const playerWidth = 30;
+        const playerHeight = 50;
+        const playerColor = '#ff4136';
+        const headRadius = playerWidth / 2.5;
+        const bodyWidth = playerWidth;
+
+        // 障害物のプロパティ
+        const obstacleWidth = 40;
+        const obstacleMinHeight = 30;
+        const obstacleMaxHeight = 80;
+        const obstacleColor = '#2ecc40'; // 通常の障害物
+        const movingObstacleColor = '#ff851b'; // 動く障害物 (オレンジ)
+        const pitfallWidth = 80; // 落とし穴の幅
+
+        // ゴールのプロパティ
+        let goal = {
+            x: GOAL_X_POSITION,
+            y: 0, // groundY基準で設定するためinitで
+            width: 60,
+            height: 100,
+            color: '#ffd700', // ゴールド
+            img: null
+        };
+
+        let isJumping = false;
+        let velocityY = 0;
+
+        let clouds = [];
+        let groundPatternOffset = 0;
+        let worldOffsetX = 0; // ワールドのX座標オフセット (プレイヤーの進行度を示す)
+
+        const keys = {
+            ArrowLeft: false,
+            ArrowRight: false
+        };
+
+        // 初期化関数
+        function init() {
+            canvas.width = gameContainer.clientWidth;
+            canvas.height = gameContainer.clientHeight;
+            groundY = canvas.height - 20;
+            worldOffsetX = 0;
+
+            player = {
+                x: 50,
+                y: groundY - playerHeight,
+                width: playerWidth,
+                height: playerHeight,
+                color: playerColor
+            };
+
+            obstacles = [];
+            score = 0;
+            obstacleSpawnTimer = 0;
+            obstacleSpawnInterval = obstacleSpawnIntervalBase;
+            gameOver = false;
+            gameWon = false;
+            isJumping = false;
+            velocityY = 0;
+            groundPatternOffset = 0;
+
+            goal.x = GOAL_X_POSITION;
+            goal.y = groundY - goal.height;
+
+            updateScoreDisplay();
+            messageBox.style.display = 'none';
+
+            clouds = [];
+            for (let i = 0; i < 7; i++) {
+                spawnCloud(true);
+            }
+
+            if (!gameStarted) {
+                showMessage("ゲーム開始！\n矢印キーで操作してね");
+                restartButton.textContent = "ゲーム開始";
+                restartButton.onclick = startGame;
+            } else {
+                gameLoop();
+            }
+        }
+
+        // ゲーム開始処理
+        function startGame() {
+            gameStarted = true;
+            messageBox.style.display = 'none';
+            restartButton.textContent = "リスタート";
+            restartButton.onclick = init;
+            gameLoop();
+        }
+
+        // プレイヤーの描画
+        function drawPlayer() {
+            const screenX = player.x;
+            const currentY = player.y;
+
+            ctx.fillStyle = player.color;
+            ctx.fillRect(screenX, currentY + headRadius * 2, bodyWidth, playerHeight - (headRadius * 2));
+            ctx.fillStyle = '#ffddaa';
+            ctx.beginPath();
+            ctx.arc(screenX + bodyWidth / 2, currentY + headRadius, headRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#aa8866';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = 'black';
+            const eyeRadius = headRadius * 0.1;
+            const eyeYInHead = currentY + headRadius - headRadius * 0.15;
+            ctx.beginPath();
+            ctx.arc(screenX + bodyWidth / 2 - headRadius * 0.3, eyeYInHead, eyeRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(screenX + bodyWidth / 2 + headRadius * 0.3, eyeYInHead, eyeRadius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 障害物の描画
+        function drawObstacles() {
+            obstacles.forEach(obstacle => {
+                const obstacleScreenX = obstacle.worldX - worldOffsetX;
+                if (obstacle.type === 'pitfall') {
+                    // No direct drawing, handled by drawGround
+                } else if (obstacle.type === 'moving') {
+                    ctx.fillStyle = movingObstacleColor;
+                    ctx.fillRect(obstacleScreenX, obstacle.y, obstacle.width, obstacle.height);
+                } else {
+                    ctx.fillStyle = obstacleColor;
+                    ctx.fillRect(obstacleScreenX, obstacle.y, obstacle.width, obstacle.height);
+                }
+            });
+        }
+
+        // 地面の描画 (落とし穴を考慮)
+        function drawGround() {
+            ctx.fillStyle = '#f4a460';
+            let lastX = 0;
+            const sortedPits = obstacles.filter(obs => obs.type === 'pitfall')
+                                      .sort((a, b) => a.worldX - b.worldX);
+
+            sortedPits.forEach(pit => {
+                const pitScreenX = pit.worldX - worldOffsetX;
+                if (pitScreenX > lastX) {
+                    ctx.fillRect(lastX, groundY, pitScreenX - lastX, canvas.height - groundY);
+                }
+                lastX = pitScreenX + pit.width;
+            });
+            if (lastX < canvas.width) {
+                ctx.fillRect(lastX, groundY, canvas.width - lastX, canvas.height - groundY);
+            }
+
+            ctx.fillStyle = '#d2691e';
+            const patternWidth = 20;
+            const currentGroundPatternOffset = groundPatternOffset % patternWidth;
+            for (let i = -1; i < canvas.width / patternWidth + 1; i++) {
+                ctx.fillRect(i * patternWidth - currentGroundPatternOffset, groundY + 5, 10, 5);
+            }
+        }
+        
+        // ゴールの描画
+        function drawGoal() {
+            const goalScreenX = goal.x - worldOffsetX;
+            if (goalScreenX + goal.width > 0 && goalScreenX < canvas.width) {
+                ctx.fillStyle = goal.color;
+                ctx.fillRect(goalScreenX, goal.y, goal.width, goal.height);
+                ctx.fillStyle = 'black';
+                ctx.font = "16px 'Press Start 2P'";
+                ctx.textAlign = 'center';
+                ctx.fillText("GOAL", goalScreenX + goal.width / 2, goal.y + goal.height / 2 + 8);
+            }
+        }
+
+        // 雲の生成
+        function spawnCloud(initial = false) {
+            const cloud = {
+                worldX: initial ? worldOffsetX + Math.random() * canvas.width : worldOffsetX + canvas.width + Math.random() * 100,
+                y: Math.random() * (canvas.height / 2.5 - 50) + 20,
+                radius: Math.random() * 25 + 20,
+            };
+            clouds.push(cloud);
+        }
+
+        // 雲の描画
+        function drawClouds() {
+            ctx.fillStyle = 'white';
+            clouds.forEach((cloud, index) => {
+                const screenCloudX = cloud.worldX - worldOffsetX;
+                ctx.beginPath();
+                ctx.arc(screenCloudX, cloud.y, cloud.radius, 0, Math.PI * 2);
+                ctx.arc(screenCloudX + cloud.radius * 0.7, cloud.y + cloud.radius * 0.2, cloud.radius * 0.7, 0, Math.PI * 2);
+                ctx.arc(screenCloudX - cloud.radius * 0.6, cloud.y + cloud.radius * 0.1, cloud.radius * 0.8, 0, Math.PI * 2);
+                ctx.closePath();
+                ctx.fill();
+
+                if (cloud.worldX + cloud.radius * 2 < worldOffsetX - canvas.width / 2) {
+                    clouds.splice(index, 1);
+                }
+            });
+            while (clouds.length < 7) {
+                spawnCloud();
+            }
+        }
+
+        // プレイヤーの更新
+        function updatePlayer() {
+            if (gameWon) return; // ゲームクリア後はプレイヤーを動かさない
+
+            if (keys.ArrowLeft) {
+                player.x -= PLAYER_MOVE_SPEED;
+            }
+            if (keys.ArrowRight) {
+                // ゴールに到達していなければworldOffsetXを進める
+                if (worldOffsetX < GOAL_X_POSITION) {
+                    if (player.x < canvas.width * 0.5) {
+                         player.x += PLAYER_MOVE_SPEED;
+                    } else {
+                         worldOffsetX += PLAYER_MOVE_SPEED;
+                         // worldOffsetXがゴールを超えないように調整
+                         if (worldOffsetX > GOAL_X_POSITION) {
+                             worldOffsetX = GOAL_X_POSITION;
+                         }
+                    }
+                } else { // ゴールに到達している場合、プレイヤーは画面上のゴール位置を超えて進めない
+                    const goalScreenX = goal.x - worldOffsetX;
+                    if (player.x + player.width < goalScreenX + goal.width - 5) { // ゴールライン手前で止まるように微調整
+                        player.x += PLAYER_MOVE_SPEED;
+                         if (player.x + player.width > goalScreenX + goal.width -5 ) {
+                            player.x = goalScreenX + goal.width - player.width -5;
+                        }
+                    }
+                }
+            }
+
+            if (player.x < 0) player.x = 0;
+            // ゴール到達後は、プレイヤーが画面右端を超えないようにする。
+            // 通常時は canvas.width - player.width で制限。
+            // ゴールが画面内にある場合、ゴールの右端を新たな右端とする。
+            const goalScreenXForBoundary = goal.x - worldOffsetX;
+            if (worldOffsetX >= GOAL_X_POSITION && goalScreenXForBoundary < canvas.width) {
+                 if (player.x + player.width > goalScreenXForBoundary + goal.width) {
+                    player.x = goalScreenXForBoundary + goal.width - player.width;
+                }
+            } else if (player.x + player.width > canvas.width) {
+                player.x = canvas.width - player.width;
+            }
+
+
+            if (isJumping) {
+                player.y += velocityY;
+                velocityY += GRAVITY;
+                if (player.y + player.height >= groundY) {
+                    player.y = groundY - player.height;
+                    isJumping = false;
+                    velocityY = 0;
+                }
+            }
+            if (player.y < 0) {
+                player.y = 0;
+                velocityY = GRAVITY;
+            }
+        }
+
+        // 背景要素（地面模様、雲）の更新
+        function updateBackgroundVisuals() {
+            groundPatternOffset = (worldOffsetX * 0.2) % 20;
+        }
+
+        // 障害物の生成
+        function spawnNewObstacle() {
+            // ゴール手前では新しい障害物を生成しない
+            if (worldOffsetX + canvas.width > GOAL_X_POSITION - 200) return;
+
+
+            const typeRoll = Math.random();
+            let newObstacle = {};
+            const spawnX = worldOffsetX + canvas.width + Math.random() * 50;
+
+            if (typeRoll < 0.2 && worldOffsetX > 500) {
+                newObstacle = {
+                    worldX: spawnX,
+                    width: pitfallWidth,
+                    type: 'pitfall'
+                };
+            } else if (typeRoll < 0.5 && worldOffsetX > 300) {
+                const height = Math.random() * (obstacleMaxHeight - obstacleMinHeight) + obstacleMinHeight;
+                newObstacle = {
+                    worldX: spawnX,
+                    y: groundY - height - Math.random() * 50,
+                    width: obstacleWidth,
+                    height: height,
+                    type: 'moving',
+                    originalY: groundY - height - Math.random() * 30,
+                    moveRange: 40 + Math.random() * 40,
+                    moveSpeed: 0.5 + Math.random() * 0.5,
+                    moveDirection: 1
+                };
+                 newObstacle.y = newObstacle.originalY;
+            } else {
+                const height = Math.random() * (obstacleMaxHeight - obstacleMinHeight) + obstacleMinHeight;
+                newObstacle = {
+                    worldX: spawnX,
+                    y: groundY - height,
+                    width: obstacleWidth,
+                    height: height,
+                    type: 'normal'
+                };
+            }
+            obstacles.push(newObstacle);
+            obstacleSpawnInterval = obstacleSpawnIntervalBase - Math.floor(worldOffsetX / 150); // 進行度に応じて出現間隔を調整
+            if (obstacleSpawnInterval < 50) obstacleSpawnInterval = 50;
+        }
+
+        // 障害物の更新 (移動、画面外削除)
+        function updateObstacles() {
+            if (!gameWon) { // ゲームクリア後は新しい障害物を生成しない
+                obstacleSpawnTimer++;
+                if (obstacleSpawnTimer >= obstacleSpawnInterval) {
+                    obstacleSpawnTimer = 0;
+                    spawnNewObstacle();
+                }
+            }
+
+            obstacles.forEach((obstacle, index) => {
+                if (obstacle.type === 'moving') {
+                    obstacle.y += obstacle.moveSpeed * obstacle.moveDirection;
+                    if (obstacle.y > obstacle.originalY + obstacle.moveRange / 2 || obstacle.y < obstacle.originalY - obstacle.moveRange / 2) {
+                        obstacle.moveDirection *= -1;
+                         obstacle.y = Math.max(obstacle.originalY - obstacle.moveRange / 2, Math.min(obstacle.originalY + obstacle.moveRange / 2, obstacle.y));
+                    }
+                }
+
+                if (obstacle.worldX + obstacle.width < worldOffsetX - canvas.width / 2 ) {
+                    obstacles.splice(index, 1);
+                    if (obstacle.type !== 'pitfall') {
+                        score++;
+                        updateScoreDisplay();
+                    }
+                }
+            });
+        }
+
+        // 衝突判定とゴール判定
+        function checkCollisionsAndGoal() {
+            if (gameOver) return; // すでにゲームオーバー/クリアなら判定しない
+
+            obstacles.forEach(obstacle => {
+                const obstacleScreenX = obstacle.worldX - worldOffsetX;
+                if (obstacle.type === 'pitfall') {
+                    if (player.x + player.width * 0.5 > obstacleScreenX && // プレイヤーの中心が穴にかかれば
+                        player.x + player.width * 0.5 < obstacleScreenX + obstacle.width &&
+                        player.y + player.height > groundY + 1
+                    ) {
+                        gameOver = true;
+                    }
+                } else {
+                    if (
+                        player.x < obstacleScreenX + obstacle.width &&
+                        player.x + player.width > obstacleScreenX &&
+                        player.y < obstacle.y + obstacle.height &&
+                        player.y + player.height > obstacle.y
+                    ) {
+                        gameOver = true;
+                    }
+                }
+            });
+
+            const goalScreenX = goal.x - worldOffsetX;
+            if (
+                player.x < goalScreenX + goal.width &&
+                player.x + player.width > goalScreenX &&
+                player.y < goal.y + goal.height &&
+                player.y + player.height > goal.y
+            ) {
+                gameWon = true;
+                gameOver = true;
+            }
+        }
+
+        // スコア表示の更新
+        function updateScoreDisplay() {
+            scoreDisplay.textContent = `スコア: ${score}  進行度: ${Math.floor(worldOffsetX / 100)}m / ${GOAL_X_POSITION/100}m`;
+        }
+
+        // メッセージ表示
+        function showMessage(text) {
+            messageText.innerHTML = text.replace(/\n/g, '<br>');
+            messageBox.style.display = 'block';
+        }
+
+        // ゲームループ
+        function gameLoop() {
+            if (gameOver && gameStarted) { // gameStartedフラグもチェック
+                if (gameWon) {
+                    showMessage(`ゲームクリア！\n最終スコア: ${score}\n進行度: ${Math.floor(worldOffsetX / 100)}m`);
+                } else {
+                    showMessage(`ゲームオーバー！\n最終スコア: ${score}\n進行度: ${Math.floor(worldOffsetX / 100)}m`);
+                }
+                restartButton.textContent = "もう一度プレイ";
+                restartButton.onclick = init;
+                return;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            updatePlayer();
+            updateBackgroundVisuals();
+            updateObstacles();
+
+            drawClouds();
+            drawGround();
+            drawGoal();
+            drawPlayer();
+            drawObstacles();
+
+            checkCollisionsAndGoal();
+            updateScoreDisplay();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // キー入力イベントリスナー
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'ArrowLeft') keys.ArrowLeft = true;
+            if (e.code === 'ArrowRight') keys.ArrowRight = true;
+
+            if ((e.code === 'ArrowUp' || e.code === 'Space')) {
+                if (!isJumping && gameStarted && !gameOver) {
+                    isJumping = true;
+                    velocityY = -JUMP_FORCE;
+                }
+                if (e.code === 'Space')  e.preventDefault();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'ArrowLeft') keys.ArrowLeft = false;
+            if (e.code === 'ArrowRight') keys.ArrowRight = false;
+        });
+
+        jumpButton.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (!isJumping && gameStarted && !gameOver) {
+                isJumping = true;
+                velocityY = -JUMP_FORCE;
+            }
+        });
+        jumpButton.addEventListener('click', () => {
+            if (!isJumping && gameStarted && !gameOver) {
+                isJumping = true;
+                velocityY = -JUMP_FORCE;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            canvas.width = gameContainer.clientWidth;
+            canvas.height = gameContainer.clientHeight;
+            groundY = canvas.height - 20;
+            goal.y = groundY - goal.height;
+
+            if (player) {
+                player.y = Math.min(player.y, groundY - player.height);
+                player.x = Math.max(0, Math.min(player.x, canvas.width - player.width));
+            }
+        });
+
+        init();
+    </script>
+</body>
+</html>
