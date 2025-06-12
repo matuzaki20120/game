@@ -440,23 +440,28 @@
                 }
             }
 
-            obstacles.forEach((obstacle, index) => {
+            // forEach で splice を行うと要素が飛ばされる可能性があるため逆順ループに変更
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obstacle = obstacles[i];
                 if (obstacle.type === 'moving') {
                     obstacle.y += obstacle.moveSpeed * obstacle.moveDirection;
                     if (obstacle.y > obstacle.originalY + obstacle.moveRange / 2 || obstacle.y < obstacle.originalY - obstacle.moveRange / 2) {
                         obstacle.moveDirection *= -1;
-                         obstacle.y = Math.max(obstacle.originalY - obstacle.moveRange / 2, Math.min(obstacle.originalY + obstacle.moveRange / 2, obstacle.y));
+                        obstacle.y = Math.max(
+                            obstacle.originalY - obstacle.moveRange / 2,
+                            Math.min(obstacle.originalY + obstacle.moveRange / 2, obstacle.y)
+                        );
                     }
                 }
 
-                if (obstacle.worldX + obstacle.width < worldOffsetX - canvas.width / 2 ) {
-                    obstacles.splice(index, 1);
+                if (obstacle.worldX + obstacle.width < worldOffsetX - canvas.width / 2) {
+                    obstacles.splice(i, 1);
                     if (obstacle.type !== 'pitfall') {
                         score++;
                         updateScoreDisplay();
                     }
                 }
-            });
+            }
         }
 
         // 衝突判定とゴール判定
