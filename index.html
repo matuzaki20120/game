@@ -157,8 +157,62 @@
             ArrowRight: false
         };
 
+        // --- BGM 用設定 ---
+        let audioCtx;
+        let bgmTimer;
+        let nextNoteTime = 0;
+        let bgmIndex = 0;
+        const bgmNotes = [
+            [261.63, 0.3], // C4
+            [329.63, 0.3], // E4
+            [392.00, 0.3], // G4
+            [523.25, 0.3], // C5
+            [392.00, 0.3], // G4
+            [329.63, 0.3], // E4
+            [261.63, 0.3], // C4
+            [196.00, 0.3]  // G3
+        ];
+
+        function scheduleNextNote() {
+            const note = bgmNotes[bgmIndex];
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(note[0], nextNoteTime);
+            gain.gain.setValueAtTime(0.1, nextNoteTime);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(nextNoteTime);
+            osc.stop(nextNoteTime + note[1]);
+            nextNoteTime += note[1];
+            bgmIndex = (bgmIndex + 1) % bgmNotes.length;
+            bgmTimer = setTimeout(scheduleNextNote, (nextNoteTime - audioCtx.currentTime) * 1000);
+        }
+
+        function startBGM() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            stopBGM();
+            nextNoteTime = audioCtx.currentTime;
+            bgmIndex = 0;
+            scheduleNextNote();
+        }
+
+        function stopBGM() {
+            if (bgmTimer) {
+                clearTimeout(bgmTimer);
+                bgmTimer = null;
+            }
+            if (audioCtx) {
+                audioCtx.close();
+                audioCtx = null;
+            }
+        }
+
         // 初期化関数
         function init() {
+            stopBGM();
             canvas.width = gameContainer.clientWidth;
             canvas.height = gameContainer.clientHeight;
             groundY = canvas.height - 20;
@@ -205,6 +259,7 @@
         // ゲーム開始処理
         function startGame() {
             gameStarted = true;
+            startBGM();
             messageBox.style.display = 'none';
             restartButton.textContent = "リスタート";
             restartButton.onclick = init;
@@ -534,6 +589,7 @@
         // ゲームループ
         function gameLoop() {
             if (gameOver && gameStarted) { // gameStartedフラグもチェック
+                stopBGM();
                 if (gameWon) {
                     showMessage(`ゲームクリア！\n最終スコア: ${score}\n進行度: ${Math.floor(worldOffsetX / 100)}m`);
                 } else {
