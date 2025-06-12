@@ -125,6 +125,7 @@
         const playerColor = '#ff4136';
         const headRadius = playerWidth / 2.5;
         const bodyWidth = playerWidth;
+        const limbWidth = playerWidth / 5; // 腕・脚の太さ
 
         // 障害物のプロパティ
         const obstacleWidth = 40;
@@ -215,15 +216,31 @@
             const screenX = player.x;
             const currentY = player.y;
 
+            const armHeight = (playerHeight - headRadius * 2) * 0.6;
+            const legHeight = (playerHeight - headRadius * 2) * 0.8;
+
+            // 体
             ctx.fillStyle = player.color;
             ctx.fillRect(screenX, currentY + headRadius * 2, bodyWidth, playerHeight - (headRadius * 2));
+
+            // 腕
             ctx.fillStyle = '#ffddaa';
+            ctx.fillRect(screenX - limbWidth, currentY + headRadius * 2, limbWidth, armHeight);
+            ctx.fillRect(screenX + bodyWidth, currentY + headRadius * 2, limbWidth, armHeight);
+
+            // 足
+            ctx.fillRect(screenX + limbWidth * 0.5, currentY + playerHeight - legHeight, limbWidth, legHeight);
+            ctx.fillRect(screenX + bodyWidth - limbWidth * 1.5, currentY + playerHeight - legHeight, limbWidth, legHeight);
+
+            // 頭
             ctx.beginPath();
             ctx.arc(screenX + bodyWidth / 2, currentY + headRadius, headRadius, 0, Math.PI * 2);
             ctx.fill();
             ctx.strokeStyle = '#aa8866';
             ctx.lineWidth = 1;
             ctx.stroke();
+
+            // 目
             ctx.fillStyle = 'black';
             const eyeRadius = headRadius * 0.1;
             const eyeYInHead = currentY + headRadius - headRadius * 0.15;
@@ -233,6 +250,13 @@
             ctx.beginPath();
             ctx.arc(screenX + bodyWidth / 2 + headRadius * 0.3, eyeYInHead, eyeRadius, 0, Math.PI * 2);
             ctx.fill();
+
+            // 口
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(screenX + bodyWidth / 2, eyeYInHead + headRadius * 0.6, headRadius * 0.5, 0, Math.PI);
+            ctx.stroke();
         }
 
         // 障害物の描画
